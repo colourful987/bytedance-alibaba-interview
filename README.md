@@ -1600,6 +1600,221 @@ XXShield 在 dealloc 中也做了类似将多余观察者移除掉的操作，�
 
 9. `Block`访问对象类型的`auto变量`时，在`ARC和MRC`下有什么区别
 
+# 四_1、Block 原理探究代码篇
+
+首先明确 Block 底层数据结构，之后所有的 demos 都基于此来学习知识点：
+
+```c
+typedef NS_OPTIONS(int,PTBlockFlags) {
+    PTBlockFlagsHasCopyDisposeHelpers = (1 << 25),
+    PTBlockFlagsHasSignature          = (1 << 30)
+};
+typedef struct PTBlock {
+    __unused Class isa;
+    PTBlockFlags flags;
+    __unused int reserved;
+    void (__unused *invoke)(struct PTBlock *block, ...);
+    struct {
+        unsigned long int reserved;
+        unsigned long int size;
+        // requires PTBlockFlagsHasCopyDisposeHelpers
+        void (*copy)(void *dst, const void *src);
+        void (*dispose)(const void *);
+        // requires PTBlockFlagsHasSignature
+        const char *signature;
+        const char *layout;
+    } *descriptor;
+    // imported variables
+  	// Block 捕获的实例变量都在次
+} *PTBlockRef;
+
+typedef struct PTBlock_byref {
+    void *isa;
+    struct PTBlock_byref *forwarding;
+    volatile int flags; // contains ref count
+    unsigned int size;
+    // 下面两个函数指针是不定的 要根据flags来
+//    void (*byref_keep)(struct PTBlock_byref *dst, struct PTBlock_byref *src);
+//    void (*byref_destroy)(struct PTBlock_byref *);
+    // long shared[0];
+} *PTBlock_byref_Ref;
+```
+
+## 1. 调用 block
+
+```c
+void (^blk)(void) = ^{
+  NSLog(@"hello world");
+};
+PTBlockRef block = (__bridge PTBlockRef)blk;
+block->invoke(block);
+```
+
+## 2. block 函数签名
+
+```c
+void (^blk)(int, short, NSString *) = ^(int a, short b, NSString *str){
+  NSLog(@"a:%d b:%d str:%@",a,b,str);
+};
+PTBlockRef block = (__bridge PTBlockRef)blk;
+if (block->flags & PTBlockFlagsHasSignature) {
+  void *desc = block->descriptor;
+  desc += 2 * sizeof(unsigned long int);
+  if (block->flags & PTBlockFlagsHasCopyDisposeHelpers) {
+    desc += 2 * sizeof(void *);
+  }
+
+  const char *signature = (*(const char **)desc);
+  NSMethodSignature *sig = [NSMethodSignature signatureWithObjCTypes:signature];
+  NSLog(@"方法 signature:%s",signature);
+}
+
+// 打印内容如下:
+// v24 @?0 i8 s12 @"NSString"16
+// 其中 ? 是 An unknown type (among other things, this code is used for function pointers)
+```
+
+## 3. block 捕获栈上局部变量
+
+捕获的变量都会按照顺序放置在 `PTBlock` 结构体后面，如此看来就是个变长结构体。
+
+也就是说我们可以通过如下方式知道 block 捕获了哪些外部变量（全局变量除外）。
+
+```c
+int a = 0x11223344;
+int b = 0x55667788;
+NSString *str = @"pmst";
+void (^blk)(void) = ^{
+  NSLog(@"a:%d b:%d str:%@",a,b, str);
+};
+PTBlockRef block = (__bridge PTBlockRef)blk;
+void *pt = (void *)block + sizeof(struct PTBlock);
+long long *ppt = pt;
+NSString *str_ref = (__bridge id)((void *)(*ppt));
+int *a_ref = pt + sizeof(NSString *);
+int *b_ref = pt + sizeof(NSString *) + sizeof(int);
+
+NSLog(@"a:0x%x b:0x%x str:%@",*a_ref, *b_ref, str_ref);
+```
+
+> TODO：`NSString` layout 布局为何在第一位？
+
+## 4. `__block` 变量（栈上）
+
+```c
+__block int a = 0x99887766;
+__unsafe_unretained void (^blk)(void) = ^{
+  NSLog(@"__block a :%d",a);
+};
+NSLog(@"Block 类型 %@",[blk class]);
+PTBlockRef block = (__bridge PTBlockRef)blk;
+void *pt = (void *)block + sizeof(struct PTBlock);
+long long *ppt = pt;
+void *ref = (PTBlock_byref_Ref)(*ppt);
+void *shared = ref + sizeof(struct PTBlock_byref);
+int *a_ref = (int *)shared;
+NSLog(@"a 指针：%p block a 指针:%p block a value:0x%x",&a, a_ref,*a_ref);
+NSLog(@"PTBlock_byref 指针：%p",ref);
+NSLog(@"PTBlock_byref forwarding 指针：%p",((PTBlock_byref_Ref)ref)->forwarding);
+/*
+输出如下：
+Block 类型 __NSStackBlock__
+a 指针：0x7ffeefbff528 block a 指针:0x7ffeefbff528 block a value:0x99887766
+PTBlock_byref 指针：0x7ffeefbff510
+PTBlock_byref forwarding 指针：0x7ffeefbff510
+*/
+```
+
+可以看到 `__block int a` 已经变成了另外一个数据结构了，打印地址符合预期，此刻 block 以及其他的变量结构体都在栈上。
+
+## 5.  `__block` 变量，[block copy] 后的内存变化
+
+```c
+__block int a = 0x99887766;
+__unsafe_unretained void (^blk)(NSString *) = ^(NSString *flag){
+  NSLog(@"[%@] 中 a 地址:%p",flag, &a);
+};
+NSLog(@"blk 类型 %@",[blk class]);
+blk(@"origin block");
+void (^copyblk)(NSString *) = [blk copy];
+copyblk(@"copy block");
+blk(@"origin block 二次调用");
+/**
+	输出如下：
+blk 类型 __NSStackBlock__
+[origin block] 中 a 地址:0x7ffeefbff528
+copyblk 类型 __NSMallocBlock__
+[copy block] 中 a 地址:0x102212468
+[origin block 二次调用] 中 a 地址:0x102212468
+*/
+```
+
+很明显对 blk 进行 copy 操作后，copyblk 已经“移驾”到堆上，随着拷贝的还有 `__block` 修饰的a变量（`PTBlock_byref_Ref `类型）；
+
+## 6. `__block` 变量中 forwarding 指针
+
+```c
+__block int a = 0x99887766;
+__unsafe_unretained void (^blk)(NSString *,id) = ^(NSString *flag, id bblk){
+  NSLog(@"[%@] a address:%p",flag, &a); // a 取值都是 ->forwarding->a 方式
+  PTBlockRef block = (__bridge PTBlockRef)bblk;
+  void *pt = (void *)block + sizeof(struct PTBlock);
+  long long *ppt = pt;
+  void *ref = (PTBlock_byref_Ref)(*ppt);
+  NSLog(@"[%@] PTBlock_byref_Ref 指针：%p",flag,ref);
+  NSLog(@"[%@] PTBlock_byref_Ref forwarding 指针：%p",flag,((PTBlock_byref_Ref)ref)->forwarding);
+  void *shared = ref + sizeof(struct PTBlock_byref);
+  int *a_ref = (int *)shared;
+  NSLog(@"[%@] a value : 0x%x a adress:%p", flag, *a_ref, a_ref);
+
+};
+NSLog(@"blk 类型 %@",[blk class]);
+blk(@"origin block", blk);
+void (^copyblk)(NSString *,id) = [blk copy];
+NSLog(@"copyblk 类型 %@",[copyblk class]);
+copyblk(@"copy block",copyblk);
+blk(@"origin block after copy", blk);
+/**
+MRC 模式下输出：
+blk 类型 __NSStackBlock__
+[origin block] a address:0x7ffeefbff528
+[origin block] PTBlock_byref_Ref 指针：0x7ffeefbff510
+[origin block] PTBlock_byref_Ref forwarding 指针：0x7ffeefbff510
+[origin block] a value : 0x99887766 a adress:0x7ffeefbff528
+copyblk 类型 __NSMallocBlock__
+[copy block] a address:0x1032041d8
+[copy block] PTBlock_byref_Ref 指针：0x1032041c0
+[copy block] PTBlock_byref_Ref forwarding 指针：0x1032041c0
+[copy block] a value : 0x99887766 a adress:0x1032041d8
+[origin block after copy] a address:0x1032041d8
+[origin block after copy] PTBlock_byref_Ref 指针：0x7ffeefbff510
+[origin block after copy] PTBlock_byref_Ref forwarding 指针：0x1032041c0
+[origin block after copy] a value : 0x99887766 a adress:0x7ffeefbff528
+
+ARC 模式下输出（这个稍有出路）：
+blk 类型 __NSStackBlock__
+[origin block] a address:0x100604cc8
+[origin block] PTBlock_byref_Ref 指针：0x100604cb0
+[origin block] PTBlock_byref_Ref forwarding 指针：0x100604cb0
+[origin block] a value : 0x99887766 a adress:0x100604cc8
+copyblk 类型 __NSMallocBlock__
+[copy block] a address:0x100604cc8
+[copy block] PTBlock_byref_Ref 指针：0x100604cb0
+[copy block] PTBlock_byref_Ref forwarding 指针：0x100604cb0
+[copy block] a value : 0x99887766 a adress:0x100604cc8
+*/
+```
+
+这里可以看到 forwarding 指针确实指向了结构体本身，随着 copy 行为确实进行了一次栈->堆的赋值——`block`和 `__block` 变量。
+
+> 建议用 lldb 命令去看内存布局。
+
+## 7. Block Hook
+
+TODO:
+
+
+
 # 五、多线程
 
 # 

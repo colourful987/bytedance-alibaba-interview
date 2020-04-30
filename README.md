@@ -18,7 +18,8 @@
 
 ### 2. 为什么要设计metaclass
 
-
+* 类对象、元类对象能够复用消息发送流程机制；
+* 单一职责原则
 
 ### 3. `class_copyIvarList` & `class_copyPropertyList`区别
 

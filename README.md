@@ -2,6 +2,7 @@
 > - 面试题出自掘金的一篇文章[《阿里、字节：一套高效的iOS面试题》](https://links.jianshu.com/go?to=https%3A%2F%2Fjuejin.im%2Fpost%2F5e397ccaf265da570b3f1b02)
 > - 欢迎转载，转载请注明出处：[pmst-swiftgg](https://links.jianshu.com/go?to=%5Bhttps%3A%2F%2Fwww.jianshu.com%2Fp%2Fc1765a6305ab%5D(https%3A%2F%2Fwww.jianshu.com%2Fp%2Fc1765a6305ab))
 > - 调试好可运行的源码 [objc-runtime](https://links.jianshu.com/go?to=https%3A%2F%2Fgithub.com%2Fcolourful987%2F2020-Read-Record%2Ftree%2Fmaster%2FAnnotated%20source%20code%2Fobjc4-750)，官网找 [objc4](https://links.jianshu.com/go?to=https%3A%2F%2Fopensource.apple.com%2Ftarballs%2Fobjc4%2F)
+> - 最后修订：2020/05/11
 
 [TOC]
 
@@ -14,6 +15,8 @@
 
 ### 1. 介绍下runtime的内存模型（isa、对象、类、metaclass、结构体的存储信息等）
 
+![](./res/runtime.png)
+
 
 
 ### 2. 为什么要设计metaclass
@@ -22,6 +25,8 @@
 * 单一职责原则
 
 ### 3. `class_copyIvarList` & `class_copyPropertyList`区别
+
+`property` 正常使用会生成对应的实例变量，所以 `Ivar` 可以查到。
 
 `class_copyIvarList` 获取类对象中的所有实例变量信息，从 `class_ro_t` 中获取：
 
@@ -151,6 +156,10 @@ struct class_rw_t {
 
 
 ### 5. `category`如何被加载的,两个category的`load`方法的加载顺序，两个category的同名方法的加载顺序
+
+> `+load` 方法是 images 加载的时候调用，假设有一个 Person 类，其主类和所有分类的 `+load` 都会被调用，优先级是先调用主类，且如果主类有继承链，那么加载顺序还必须是基类的 `+load` ，接着是父类，最后是子类；category 的 `+load` 则是按照编译顺序来的，后编译的先调用；
+>
+> 另外一个问题是 `initialize` 的加载顺序，其实是类第一次被使用到的时候会被调用，底层实现有个逻辑先判断父类是否被初始化过，没有则先调用父类，然后在调用当前类的 `initialize` 方法；如果`+load` 方法中调用了其他类：比如 B 的某个方法，其实说白了就是走消息发送流程，由于 B 没有初始化过，则会调用其 initialize 方法，但此刻 B 的 +load 方法可能还没有被系统调用过。
 
 `... -> realizeClass -> methodizeClass(用于Attach categories)-> attachCategories` 关键就是在 methodizeClass 方法实现中
 
@@ -321,7 +330,13 @@ extension:
 * 不能为系统类添加扩展
 
 ### 7. 消息转发机制，消息转发机制和其他语言的消息机制优劣对比
+
+![](./res/message_forward.png)
+
 ### 8. 在方法调用的时候，`方法查询-> 动态解析-> 消息转发` 之前做了什么
+
+OC中的方法调用，编译后的代码最终都会转成 `objc_msgSend(id , SEL, ...)` 方法进行调用，这个方法第一个参数是一个消息接收者对象，runtime通过这个对象的isa指针找到这个对象的类对象，从类对象中的cache中查找(**哈希查找，bucket 桶实现**)是否存在SEL对应的IMP，若不存在，则会在 method_list中查找（二分查找或者顺序查找），如果还是没找到，则会到supper_class中查找，仍然没找到的话，就会调用_objc_msgForward(id, SEL, ...)进行消息转发。
+
 ### 9. `IMP`、`SEL`、`Method`的区别和使用场景
 
 三者的定义：
@@ -345,7 +360,7 @@ Method 同样是个对象，封装了方法名和实现，关于 [Type Encodings
 | `c`                | A `char`                                                     |
 | `i`                | An `int`                                                     |
 | `s`                | A `short`                                                    |
-| `l`                | A `long``l` is treated as a 32-bit quantity on 64-bit programs. |
+| `l`                | A `long l` is treated as a 32-bit quantity on 64-bit programs. |
 | `q`                | A `long long`                                                |
 | `C`                | An `unsigned char`                                           |
 | `I`                | An `unsigned int`                                            |
@@ -556,7 +571,7 @@ void callInitialize(Class cls)
 | ------------ | ------------------------------------------------------------ |
 | 加载动态库   | Dyld从主执行文件的header获取到需要加载的所依赖动态库列表，然后它需要找到每个 dylib，而应用所依赖的 dylib 文件可能会再依赖其他 dylib，所以所需要加载的是动态库列表一个递归依赖的集合 |
 | Rebase和Bind | - Rebase在Image内部调整指针的指向。在过去，会把动态库加载到指定地址，所有指针和数据对于代码都是对的，而现在地址空间布局是随机化，所以需要在原来的地址根据随机的偏移量做一下修正 - Bind是把指针正确地指向Image外部的内容。这些指向外部的指针被符号(symbol)名称绑定，dyld需要去符号表里查找，找到symbol对应的实现 |
-| Objc setup   | - 注册Objc类 (class registration) - 把category的定义插入方法列表 (category registration) - 保证每一个selector唯一 (selector uniquing) |
+| Objc setup   | - 注册Objc类 (class registration) - 把category的定义插入方法列表 (category registration) - 保证每一个selector唯一 (selector uniqing) |
 | Initializers | - Objc的+load()函数 - C++的构造函数属性函数 - 非基本类型的C++静态全局变量的创建(通常是类或结构体) |
 
 最后 dyld 会调用 main() 函数，main() 会调用 UIApplicationMain()，before main()的过程也就此完成。

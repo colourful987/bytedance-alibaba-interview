@@ -821,7 +821,7 @@ id _object_get_associative_reference(id object, void *key) {
 }
 ```
 
-对应的set操作实现同样简单，耐心看下源码注释，即使不同c++都没问题：
+对应的set操作实现同样简单，耐心看下源码注释，即使不懂 c++ 都没问题：
 
 ```c++
 void _object_set_associative_reference(id object, void *key, id value, uintptr_t policy) {
@@ -894,22 +894,56 @@ void _object_set_associative_reference(id object, void *key, id value, uintptr_t
 
 ### 3. 关联对象的如何进行内存管理的？关联对象如何实现weak属性
 
-使用了 `policy` 设置内存管理策略，具体见上。
+使用了 `policy` 设置内存管理策略，具体见上。凡是加一层呗。。。搞一个类，然后内部封装一个 `weak` 变量持有；或者不用 weak，但是还是封装一层，但是在 dealloc 中进行置为 nil操作
 
 ### 4. `Autoreleasepool`的原理？所使用的的数据结构是什么
 
-
+基于栈节点的双向列表，使用 `@autoreleasePool` 包裹的作用域中，所有调用 autorelease 都会将对象push到自动释放池，作用域结束就会drain一次，这里涉及到了 哨兵对象，也就是 插入一个nil标识。
 
 ### 5. `ARC`的实现原理？`ARC`下对`retain & release`做了哪些优化
 
+ARC 是 LLVM 和 Runtime 协作的结果，ARC 中禁止调用 retain/release/retainCount/dealloc方法，新增weak strong。MRC 是手动管理内存。
+
+简单地说，就是代码中自动加入了retain/release，原先需要手动添加的用来处理内存管理的引用计数的代码可以自动地由编译器完成了。ARC并不是GC，它只是一种代码静态分析（Static Analyzer）工具.比如如果不是 alloc/new/copy/mutableCopy 开头的函数，编译器会将生成的对象自动放入 autoreleasePool 中。如果是 __strong 修饰的变量，编译器会自动给其加上所有权。等等，详细，我们根据不同的关键字来看看编译器为我们具体做了什么。并从中总结出 ARC 的使用规则。
+
 ### 6. `ARC`下哪些情况会造成内存泄漏
+
+* 循环引用;
+* **CF类型内存**/C语言malloc出来的对象；
+* **单例也会造成内存泄漏**
 
 ## 其他
 
 1. `Method Swizzle`注意事项
+
 2. 属性修饰符`atomic`的内部实现是怎么样的?能保证线程安全吗
+
+   自旋锁，但实际上是unfair 锁，不能完全保证，因为对于容器变量的修改不能保证线程安全，比如 NSMutableArray。
+
 3. iOS 中内省的几个方法有哪些？内部实现原理是什么
+
 4. `class、objc_getClass、object_getclass` 方法有什么区别?
+
+   ```objective-c
+   / 返回的 isa 指针指向的对象，如果 obj 是实例，返回的是类对象，如果 obj 是类对象，返回的是元类对象
+   // 如果是元类对象，返回的是 NSObject 元类对象（所有元类对象的isa指针都指向了 NSObject 元类对象）
+   Class object_getClass(id obj)
+   {
+       if (obj) return obj->getIsa();
+       else return Nil;
+   }
+   
+   // 通过传入类名称 返回类对象
+   Class objc_getClass(const char *aClassName)
+   {
+       if (!aClassName) return Nil;
+   
+       // NO unconnected, YES class handler
+       return look_up_class(aClassName, NO, YES);
+   }
+   ```
+
+   
 
 # 二、NSNotification相关
 

@@ -1316,7 +1316,7 @@ NSRunLoop *runLoop = [NSRunLoop currentRunLoop];
 
 KVO 会为需要observed的对象动态创建一个子类，以`NSKVONotifying_` 最为前缀，然后将对象的 isa 指针指向新的子类，同时重写 class 方法，返回原先类对象，这样外部就无感知了；其次重写所有要观察属性的setter方法，统一会走一个方法，然后内部是会调用 `willChangeValueForKey` 和 `didChangevlueForKey` 方法，在一个被观察属性发生改变之前， `willChangeValueForKey:`一定会被调用，这就 会记录旧的值。而当改变发生后，`didChangeValueForKey:`会被调用，继而 `observeValueForKey:ofObject:change:context:` 也会被调用。
 
-![图片出处https://juejin.im/post/5adab70cf265da0b736d37a8](/Users/pmst/Source Code Repositories/2020-Read-Record/topics/面经解题集合/res/kvo.png)
+![图片出处https://juejin.im/post/5adab70cf265da0b736d37a8](./res/kvo.png)
 
 那么如何验证上面的说法呢？很简单，借助runtime 即可，测试代码请点击[这里](https://github.com/colourful987/2020-Read-Record/tree/master/samples/02-25-KVO):
 
@@ -1965,7 +1965,7 @@ dispatch_once(&onceToken, ^{
 
 这里引入“**组(group)**”的概念，与队列不同，任何加入到组中的任务(task)，可以是串行执行或并行执行，可以来自任何其他队列，当组中所有任务完成之时，会通知你这个消息。下面是几个常用接口：
 
-- `dispatch_group_t group_name = dispatch_group_create();` 实例化一个组
+- `dispatch_group_t group_name = dispatch_group_create();` 实例化一个组（就是个信号量）
 - `dispatch_group_enter(<#dispatch_group_t _Nonnull group#>)` 和 `dispatch_group_leave(<#dispatch_group_t _Nonnull group#>)` ，“加入”和“离开”是一对，就好比Objective-C 内存管理一样，谁持有(`retain`)谁释放(`release`)
 - `dispatch_group_wait(<#dispatch_group_t _Nonnull group#>,DISPATCH_TIME_FOREVER)` 阻塞当前线程，等待任务组中的所有任务执行完毕。
 - `dispatch_group_notify(<#dispatch_group_t _Nonnull group#>, <#dispatch_queue_t _Nonnull queue#>, <#^(void)block#>)` 和3不同，当组中的全部执行完毕，将 `block` 任务加入到队列 `queue` 执行。
@@ -1998,6 +1998,9 @@ NSLog(@"所有任务完成");
 1. dispatch_sync
 2. dispatch_group，
 3. dispatch_semaphore
+4. NSLock
+5. pthread_mutex_t 互斥锁、递归锁等
+6.  @synchronized
 
 ## `dispatch_once`实现原理
 
@@ -2064,7 +2067,7 @@ dispatch_once_f_slow(dispatch_once_t *val, void *ctxt, dispatch_function_t func)
 }
 ```
 
-上面是 libdispatch-913.60.2 的实现，稍显负责，所以找了下旧版本的[其他大佬的解答摘抄下](http://lingyuncxb.com/2018/02/01/GCD源码分析2%20——%20dispatch-once篇/)：
+上面是 libdispatch-913.60.2 的实现，稍显复杂，所以找了下旧版本的[其他大佬的解答摘抄下](http://lingyuncxb.com/2018/02/01/GCD源码分析2%20——%20dispatch-once篇/)：
 
 ```c
 void dispatch_once_f(dispatch_once_t *val, void *ctxt, void (*func)(void *)){
@@ -2086,7 +2089,7 @@ void dispatch_once_f(dispatch_once_t *val, void *ctxt, void (*func)(void *)){
 }
 ```
 
-- 1、在开篇中已经讲过`dispatch_atomic_cmpxchg`，它是一个宏定义，原型为`__sync_bool_compare_and_swap((p), (o), (n))` ，这是LockFree给予CAS的一种原子操作机制，原理就是 **如果p==o，那么将p设置为n，然后返回true;否则，不做任何处理返回false**
+- 1、在开篇中已经讲过`dispatch_atomic_cmpxchg`，它是一个宏定义，原型为`__sync_bool_compare_and_swap((p), (o), (n))` ，这是LockFree给予CAS的一种原子操作机制，原理就是 **如果p==o，那么将p设置为n，然后返回true;否则，不做任何处理返回false**( 博主这里小声逼逼：其实就是gcc提供的底层原子操作，CPU提供了在指令执行期间对总线加锁的手段，CPU芯片有一个引脚只要拉低电平就可以组织其他指令进行通过总线访问内存了，只有当前面的值指令执行完毕，把引脚电平复位就又恢复正常，这个就是硬件上的实现。)
 - 2、在多线程环境中，如果某一个线程A首次进入`dispatch_once_f`，*val==0，这个时候直接将其原子操作设为1，然后执行传入`dispatch_once_f`的block，然后调用`dispatch_atomic_barrier`，最后将*val的值修改为~0。
 - 3、`dispatch_atomic_barrier`是一种内存屏障，所谓内存屏障，从处理器角度来说，是用来串行化读写操作的，从软件角度来讲，就是用来解决顺序一致性问题的。编译器不是要打乱代码执行顺序吗，处理器不是要乱序执行吗，你插入一个内存屏障，就相当于告诉编译器，屏障前后的指令顺序不能颠倒，告诉处理器，只有等屏障前的指令执行完了，屏障后的指令才能开始执行。所以这里`dispatch_atomic_barrier`能保证只有在block执行完毕后才能修改*val的值。
 - 4、在首个线程A执行block的过程中，如果其它的线程也进入`dispatch_once_f`，那么这个时候if的原子判断一定是返回false，于是走到了else分支，于是执行了do~while循环，其中调用了`_dispatch_hardware_pause`，这有助于提高性能和节省CPU耗电，pause就像nop，干的事情就是延迟空等的事情。直到首个线程已经将block执行完毕且将*val修改为~0，调用`dispatch_atomic_barrier`后退出。这么看来其它的线程是无法执行block的，这就保证了在`dispatch_once_f`的block的执行的唯一性，生成的单例也是唯一的。
@@ -2268,21 +2271,21 @@ dispatch_source_cancel(self.disTimer);
 
 ## 3. 事件响应链
 
-![](/Users/pmst/Source Code Repositories/bytedance-alibaba-interview/res/responderchain.png)
+![](./res/responderchain.png)
 
 >  慕尚课程的总结图
 
-![](/Users/pmst/Source Code Repositories/bytedance-alibaba-interview/res/responderhandle.png)
+![](./res/responderhandle.png)
 
 
 
-![](/Users/pmst/Source Code Repositories/bytedance-alibaba-interview/res/responderhandle2.png)
+![](./res/responderhandle2.png)
 
 ## drawrect & layoutsubviews调用时机
 
-![](/Users/pmst/Source Code Repositories/bytedance-alibaba-interview/res/drawrect.png)
+![](./res/drawrect.png)
 
-![](/Users/pmst/Source Code Repositories/bytedance-alibaba-interview/res/drawrect2.png)
+![](./res/drawrect2.png)
 
 
 
@@ -2493,7 +2496,7 @@ UIImage *img = [UIImage imageNamed:@"pic"];
 
 #### 两者应用场景
 
-* 如果图片较小，并且使用频繁的图片使用 imageName：方法来加载
+* 如果图片较小，并且使用频繁的图片使用 imageNamed：方法来加载
 * 如果图片较大，并且使用较少，使用imageWithContentOfFile:来加载。
 * 当你不需要重用该图像，或者你需要将图像以数据方式存储到数据库，又或者你要通过网络下载一个很大的图像时，使用 `imageWithContentsOfFile`；
 * 如果在程序中经常需要重用的图片，比如用于UITableView的图片，那么最好是选择imageNamed方法。这种方法可以节省出每次都从磁盘加载图片的时间；
@@ -2752,11 +2755,11 @@ HTTP 明文传输，客户端和服务端进行通信时，中间人即指夹在
 * 服务端接收发送 SYN = 1，ACK = 1，ack=x+1， seq = y 给客户端
 * 客户端发送 ACK = 1，ack = y+1 ，seq = z 给服务端
 
-![](/Users/pmst/Source Code Repositories/bytedance-alibaba-interview/res/第一次握手.png)
+![](./res/第一次握手.png)
 
-![](/Users/pmst/Source Code Repositories/bytedance-alibaba-interview/res/第二次握手.png)
+![](./res/第二次握手.png)
 
-![](/Users/pmst/Source Code Repositories/bytedance-alibaba-interview/res/第三次握手.png)
+![](./res/第三次握手.png)
 
 四次挥手：
 

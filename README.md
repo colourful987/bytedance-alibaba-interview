@@ -651,7 +651,9 @@ static StripedMap<SideTable>& SideTables() {
 reinterpret_cast <new_type> (expression)
 ```
 
-每一个  weak 关键字修饰的对象都是用 `weak_entry_t` 结构体来表示，所以在实例中声明定义的 weak 对象都会被封装成 `weak_entry_t` 加入到该 SideTable 中 `weak_table` 中
+指向某个对象A的所有  weak 关键字修饰的引用都 append 到 `weak_entry_t` 结构体中的`referrers`， 同时`weak_entry_t` 的 `referent` 就是对象A，之后在dealloc 释放时遍历 `weak_table` 遍历时会判断 referent 是否为对象 A 取到 `weak_entry_t`，加入到该 SideTable 中 `weak_table` 中：
+
+> weak 底层实现其实不难，不同架构下 SideTable 表数量也是不同的（8和64）,所以用对象指针作为Key，存在键值冲突的问题，因此在设计上也要解决该问题，源码有体现。
 
 ```c++
 typedef objc_object ** weak_referrer_t;
@@ -1308,7 +1310,7 @@ NSRunLoop *runLoop = [NSRunLoop currentRunLoop];
 
 > Note:  如果runloop中没有处理事件，这里一直会退出然后起runloop，就算设置了 `[[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode beforeDate:[NSDate distantFuture]];` 也没用，但是执行过一次 `[self performSelector:@selector(doTask) onThread:self.myThread withObject:nil waitUntilDone:NO]`，那么程序就卡在 `[NSRunLoop.currentRunLoop runMode:NSDefaultRunLoopMode beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.1]]` 这一行了。
 
-## KVO（Finished）
+## KVO
 
 同`runloop`一样，这也是标配的知识点了，同样列出几个典型问题
 
@@ -1475,7 +1477,7 @@ XXShield 在 dealloc 中也做了类似将多余观察者移除掉的操作，�
 > *  [JackLee18](https://github.com/JackLee18) / **[JKCrashProtect](https://github.com/JackLee18/JKCrashProtect)**（第三方框架）
 > * [大白健康系统 -- iOS APP运行时 Crash 自动修复系统](https://neyoufan.github.io/2017/01/13/ios/BayMax_HTSafetyGuard)
 
-# 四、Block(初版)
+# 四、Block
 
 1. `block`的内部实现，结构体是什么样的
 
@@ -1650,7 +1652,7 @@ XXShield 在 dealloc 中也做了类似将多余观察者移除掉的操作，�
 
 9. `Block`访问对象类型的`auto变量`时，在`ARC和MRC`下有什么区别
 
-# 四_1、Block 原理探究代码篇
+# 四、Block 原理探究代码篇
 
 首先明确 Block 底层数据结构，之后所有的 demos 都基于此来学习知识点：
 

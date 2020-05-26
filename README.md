@@ -635,7 +635,23 @@ struct weak_table_t {
 };
 ```
 
-根据对象的地址在缓存中取出对应的 `SideTable` 实例：
+根据对象的地址在缓存中取出对应的 `SideTable` 实例，
+
+> key 就是对象指针进行哈希算法后的值，全局的 SideTables 表个数根据平台分配了 8 或 64个，因此必定存在多个对象共用同一个 SideTable 的情况，不过SideTable中的 `weak_table_t` 和 `RefcountMap` 又是个哈希表，此时的 key 是对指针进行取反操作，另外还做了哈希碰撞处理。
+
+```c++
+// objc-private.h
+#if TARGET_OS_IPHONE && !TARGET_OS_SIMULATOR
+    enum { StripeCount = 8 };
+#else
+    enum { StripeCount = 64 };
+#endif
+
+static unsigned int indexForPointer(const void *p) {
+  uintptr_t addr = reinterpret_cast<uintptr_t>(p);
+  return ((addr >> 4) ^ (addr >> 9)) % StripeCount;
+}
+```
 
 ```c++
 static SideTable *tableForPointer(const void *p)

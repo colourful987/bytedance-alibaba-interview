@@ -1,7 +1,5 @@
 ### 1. weak 如何实现的
 
-> 频次：1
-
 底层源码实现：
 
 ```objective-c
@@ -20,6 +18,24 @@ objc_initWeak(id *location, id newObj)
 ```
 
 借助了 SideTable 数据结构，也称之为引用计数和弱引用表，底层维护了一个全局的 SideTables 对象，是 `StripedMap` 哈希表，通过对象指针作为 KEY 去找到对应的 SideTable。
+
+> key 就是对象指针进行哈希算法后的值，本来全局的 SideTables 表个数为 8 或 64，因此必定存在多个对象共用同一个 SideTable 的情况，不过SideTable中的 `weak_table_t` 和 `RefcountMap` 又是个哈希表，此时的 key 是对指针进行取反操作，另外还做了哈希碰撞处理。
+
+```c++
+// objc-private.h
+#if TARGET_OS_IPHONE && !TARGET_OS_SIMULATOR
+    enum { StripeCount = 8 };
+#else
+    enum { StripeCount = 64 };
+#endif
+
+static unsigned int indexForPointer(const void *p) {
+  uintptr_t addr = reinterpret_cast<uintptr_t>(p);
+  return ((addr >> 4) ^ (addr >> 9)) % StripeCount;
+}
+```
+
+数据结构如下
 
 ```c++
 struct SideTable {

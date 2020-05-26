@@ -157,9 +157,11 @@ struct class_rw_t {
 
 ### 5. `category`如何被加载的,两个category的`load`方法的加载顺序，两个category的同名方法的加载顺序
 
-> `+load` 方法是 images 加载的时候调用，假设有一个 Person 类，其主类和所有分类的 `+load` 都会被调用，优先级是先调用主类，且如果主类有继承链，那么加载顺序还必须是基类的 `+load` ，接着是父类，最后是子类；category 的 `+load` 则是按照编译顺序来的，后编译的先调用；
+> `+load` 方法是 images 加载的时候调用，假设有一个 Person 类，其主类和所有分类的 `+load` 都会被调用，优先级是先调用主类，且如果主类有继承链，那么加载顺序还必须是基类的 `+load` ，接着是父类，最后是子类；category 的 `+load` 则是按照编译顺序来的，先编译的先调用，后编译的后调用，可在 Xcode  的 BuildPhase 中查看，[测试 Demo 可点击下载运行](./demos/TestLoad方法)；
 >
 > 另外一个问题是 `initialize` 的加载顺序，其实是类第一次被使用到的时候会被调用，底层实现有个逻辑先判断父类是否被初始化过，没有则先调用父类，然后在调用当前类的 `initialize` 方法；如果`+load` 方法中调用了其他类：比如 B 的某个方法，其实说白了就是走消息发送流程，由于 B 没有初始化过，则会调用其 initialize 方法，但此刻 B 的 +load 方法可能还没有被系统调用过。
+>
+> **小结：** 不管是 load 还是 initialize 方法都是 runtime 底层自动调用的，如果开发自己手动进行了 `[super load]` 或者 `[super initialize]` 方法，实际上是走消息发送流程，那么这里也涉及了一个调用流程，需要引起注意。
 
 `... -> realizeClass -> methodizeClass(用于Attach categories)-> attachCategories` 关键就是在 methodizeClass 方法实现中
 

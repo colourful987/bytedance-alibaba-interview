@@ -610,7 +610,7 @@ copyblk 类型 __NSMallocBlock__
 
 OC中的方法调用，编译后的代码最终都会转成 `objc_msgSend(id , SEL, ...)` 方法进行调用，这个方法第一个参数是一个消息接收者对象，runtime通过这个对象的isa指针找到这个对象的类对象，从类对象中的cache中查找(**哈希查找，bucket 桶实现**)是否存在SEL对应的IMP，若不存在，则会在 method_list中查找（二分查找或者顺序查找），如果还是没找到，则会到supper_class中查找，仍然没找到的话，就会调用_objc_msgForward(id, SEL, ...)进行消息转发。
 
-![](./res/message_forward.png)
+![](../res/message_forward.png)
 
 
 

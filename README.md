@@ -920,7 +920,7 @@ void _object_set_associative_reference(id object, void *key, id value, uintptr_t
 
 ### 4. `Autoreleasepool`的原理？所使用的的数据结构是什么
 
-基于栈节点的双向列表，使用 `@autoreleasePool` 包裹的作用域中，所有调用 autorelease 都会将对象push到自动释放池，作用域结束就会drain一次，这里涉及到了 哨兵对象，也就是 插入一个nil标识。
+基于栈为节点（node）的双向链表，使用 `@autoreleasePool` 包裹的作用域中，所有调用 autorelease 都会将对象push到自动释放池，作用域结束就会drain一次，这里涉及到了 哨兵对象，也就是 插入一个nil标识。
 
 ### 5. `ARC`的实现原理？`ARC`下对`retain & release`做了哪些优化
 

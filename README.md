@@ -2,6 +2,7 @@
 > - 面试题出自掘金的一篇文章[《阿里、字节：一套高效的iOS面试题》](https://links.jianshu.com/go?to=https%3A%2F%2Fjuejin.im%2Fpost%2F5e397ccaf265da570b3f1b02)
 > - 欢迎转载，转载请注明出处：[pmst-swiftgg](https://links.jianshu.com/go?to=%5Bhttps%3A%2F%2Fwww.jianshu.com%2Fp%2Fc1765a6305ab%5D(https%3A%2F%2Fwww.jianshu.com%2Fp%2Fc1765a6305ab))
 > - 调试好可运行的源码 [objc-runtime](https://links.jianshu.com/go?to=https%3A%2F%2Fgithub.com%2Fcolourful987%2F2020-Read-Record%2Ftree%2Fmaster%2FAnnotated%20source%20code%2Fobjc4-750)，官网找 [objc4](https://links.jianshu.com/go?to=https%3A%2F%2Fopensource.apple.com%2Ftarballs%2Fobjc4%2F)
+> - 关于内推：目前博主就职于字节跳动，可帮忙内推，关于面试也可解答一二，欢迎发邮件联系或投递简历，我会第一时间处理，Email: machao.pmst@bytedance.com
 > - 最后修订：2020/05/11
 
 [TOC]
